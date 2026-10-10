@@ -22,6 +22,11 @@ export async function listMonth(db, month) {
   return results;
 }
 
+export async function listAll(db) {
+  const { results } = await db.prepare('SELECT * FROM transactions ORDER BY op_date, id').all();
+  return results;
+}
+
 export async function summary(db, month) {
   const like = `${month}-%`;
   const [totals, byCat, byUser] = await db.batch([

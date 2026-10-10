@@ -5,8 +5,8 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, allowedIds, todayISO } from './c
 import { addTx, deleteTx, getTx, listMonth, summary } from './db.js';
 import { handleUpdate, notifyAdded, notifyDeleted, setupBot } from './bot.js';
 import { parseAmount, toMajor } from './money.js';
+import { MONTH_RE, sendExport } from './export.js';
 
-const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
 function corsHeaders(env) {
@@ -29,7 +29,7 @@ const userName = (u) => String(u.first_name || u.username || u.id).slice(0, 64);
 
 const txOut = (t) => ({
   id: t.id, user_id: t.user_id, user_name: t.user_name, kind: t.kind,
-  amount: toMajor(t.amount_minor), category: t.category, comment: t.comment,
+  amount: toMajor(t.amount_minor), category: t.category,
   date: t.op_date, created_at: t.created_at,
 });
 
@@ -87,10 +87,21 @@ async function api(request, env, ctx, url) {
 
     const tx = await addTx(env.DB, {
       userId: user.id, userName: userName(user), kind, amountMinor, category,
-      comment: String(body.comment || '').trim().slice(0, 200), opDate,
+      comment: '', opDate,
     });
     ctx.waitUntil(notifyAdded(env, tx)); // уведомление уходит в фоне, ответ не ждёт
     return json(txOut(tx), 201, env);
+  }
+
+  // Экспорт: файл Excel уходит в личный чат пользователя с ботом
+  if (method === 'POST' && path === '/api/export') {
+    let body = {};
+    try { body = await request.json(); } catch { /* пустое тело — текущий месяц */ }
+    const period = body.period === 'all' ? 'all' : String(body.period || todayISO(env).slice(0, 7));
+    if (period !== 'all' && !MONTH_RE.test(period)) return error(400, 'period: ГГГГ-ММ или all', env);
+    const r = await sendExport(env, user.id, period);
+    if (!r.ok) return error(502, 'Не удалось отправить файл. Откройте чат с ботом и нажмите /start.', env);
+    return json({ ok: true, count: r.count }, 200, env);
   }
 
   const del = /^\/api\/transactions\/(\d+)$/.exec(path);

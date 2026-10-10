@@ -2,11 +2,12 @@
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, MONTHS, allowedIds, todayISO } from './config.js';
 import { addTx, summary } from './db.js';
 import { fmtMoney, parseAmount } from './money.js';
+import { parsePeriod, periodTitle, sendExport } from './export.js';
 
 const KIND_LABEL = { income: 'доход', expense: 'расход' };
 const KIND_ICON = { income: '💰', expense: '💸' };
 
-// «500 кафе», «-1200 продукты лидл», «+80000 зарплата»
+// «500 кафе», «-350 сигареты», «+80000 зарплата»
 export const QUICK_RE = /^\s*([+-])?\s*(\d[\d\s]*(?:[.,]\d{1,2})?)\s*([\s\S]*)$/;
 
 const HELP = [
@@ -14,9 +15,11 @@ const HELP = [
   '• Кнопка «Бюджет» внизу слева — полное приложение.',
   '• Быстрый ввод сообщением:',
   '  <code>500 кафе</code> — расход',
-  '  <code>-1200 продукты лидл</code> — расход с комментарием',
+  '  <code>350 сигареты</code> — расход',
   '  <code>+80000 зарплата</code> — доход',
+  '  (если категория не распознана — запишется в «Другое»)',
   '• /balance — итоги текущего месяца',
+  '• /export — таблица Excel за месяц, <code>/export all</code> — за всё время',
 ].join('\n');
 
 export const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -45,9 +48,7 @@ const appButton = (env) => (env.WEBAPP_URL
   : {});
 
 export function describe(tx, currency) {
-  let text = `${KIND_LABEL[tx.kind]} <b>${fmtMoney(tx.amount_minor, currency)}</b> — ${esc(tx.category)}`;
-  if (tx.comment) text += ` (${esc(tx.comment)})`;
-  return text;
+  return `${KIND_LABEL[tx.kind]} <b>${fmtMoney(tx.amount_minor, currency)}</b> — ${esc(tx.category)}`;
 }
 
 async function notifyPartners(env, authorId, text) {
@@ -61,9 +62,13 @@ export const notifyAdded = (env, tx) =>
 export const notifyDeleted = (env, tx, byId, byName) =>
   notifyPartners(env, byId, `🗑 ${esc(byName)} удалил(а) запись: ${describe(tx, env.CURRENCY)}`);
 
+// Разговорные синонимы категорий для быстрого ввода
+const ALIASES = { 'сиги': 'Сигареты', 'сижки': 'Сигареты', 'курево': 'Сигареты', 'табак': 'Сигареты' };
+
 export function matchCategory(word, categories) {
   const w = (word || '').toLowerCase();
   if (!w) return null;
+  if (ALIASES[w] && categories.includes(ALIASES[w])) return ALIASES[w];
   return categories.find((c) => c.toLowerCase() === w || (w.length >= 3 && c.toLowerCase().startsWith(w))) || null;
 }
 
@@ -76,12 +81,8 @@ export function parseQuick(text) {
   if (amountMinor === null) return null;
   const kind = sign === '+' ? 'income' : 'expense';
   const cats = kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-  const trimmed = rest.trim();
-  const [first, ...others] = trimmed.split(/\s+/);
-  const category = matchCategory(first, cats);
-  return category
-    ? { kind, amountMinor, category, comment: others.join(' ') }
-    : { kind, amountMinor, category: 'Другое', comment: trimmed };
+  const [first] = rest.trim().split(/\s+/);
+  return { kind, amountMinor, category: matchCategory(first, cats) || 'Другое' };
 }
 
 async function balanceText(env) {
@@ -128,6 +129,17 @@ export async function handleUpdate(update, env) {
 
   if (text.startsWith('/help')) return void await send(env, chatId, HELP, appButton(env));
   if (text.startsWith('/balance')) return void await send(env, chatId, await balanceText(env), appButton(env));
+  if (text.startsWith('/export')) {
+    const period = parsePeriod(text.split(/\s+/)[1], todayISO(env).slice(0, 7));
+    if (!period) {
+      await send(env, chatId, 'Формат: <code>/export</code> — текущий месяц, <code>/export 2026-09</code> — '
+        + 'нужный месяц, <code>/export all</code> — всё время');
+      return;
+    }
+    const r = await sendExport(env, chatId, period);
+    if (!r.ok) await send(env, chatId, `Не получилось собрать таблицу ${periodTitle(period)} 😕 Попробуйте ещё раз.`);
+    return;
+  }
   if (text.startsWith('/')) return;
 
   const q = parseQuick(text);
@@ -141,7 +153,7 @@ export async function handleUpdate(update, env) {
     kind: q.kind,
     amountMinor: q.amountMinor,
     category: q.category,
-    comment: q.comment.slice(0, 200),
+    comment: '',
     opDate: todayISO(env),
   });
   await send(env, chatId, `✅ Записал: ${describe(tx, env.CURRENCY)}`);
@@ -161,6 +173,7 @@ export async function setupBot(env, workerOrigin, secret) {
     commands: [
       { command: 'start', description: 'Открыть бюджет' },
       { command: 'balance', description: 'Итоги месяца' },
+      { command: 'export', description: 'Таблица Excel (/export all — за всё время)' },
       { command: 'help', description: 'Как пользоваться' },
     ],
   });

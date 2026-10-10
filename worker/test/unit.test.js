@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { validateInitData } from '../src/auth.js';
 import { fmtMoney, parseAmount } from '../src/money.js';
 import { parseQuick } from '../src/bot.js';
+import { buildWorkbook, parsePeriod, summarize } from '../src/export.js';
+import { strFromU8, unzipSync } from 'fflate';
 import { TEST_TOKEN as TOKEN, makeInitData } from './helpers.js';
 
 test('подпись initData', async () => {
@@ -31,12 +33,31 @@ test('суммы', () => {
 });
 
 test('быстрый ввод', () => {
-  assert.deepEqual(parseQuick('500 кафе'), { kind: 'expense', amountMinor: 50000, category: 'Кафе', comment: '' });
-  assert.deepEqual(parseQuick('-1200 продукты лидл'),
-    { kind: 'expense', amountMinor: 120000, category: 'Продукты', comment: 'лидл' });
-  assert.deepEqual(parseQuick('+80000 зарплата'),
-    { kind: 'income', amountMinor: 8000000, category: 'Зарплата', comment: '' });
-  assert.deepEqual(parseQuick('300 такси до центра'),
-    { kind: 'expense', amountMinor: 30000, category: 'Другое', comment: 'такси до центра' });
+  assert.deepEqual(parseQuick('500 кафе'), { kind: 'expense', amountMinor: 50000, category: 'Кафе' });
+  assert.deepEqual(parseQuick('-350 сигареты'), { kind: 'expense', amountMinor: 35000, category: 'Сигареты' });
+  assert.deepEqual(parseQuick('350 сиги'), { kind: 'expense', amountMinor: 35000, category: 'Сигареты' });
+  assert.deepEqual(parseQuick('+80000 зарплата'), { kind: 'income', amountMinor: 8000000, category: 'Зарплата' });
+  assert.deepEqual(parseQuick('300 такси до центра'), { kind: 'expense', amountMinor: 30000, category: 'Другое' });
   assert.equal(parseQuick('привет'), null);
+});
+
+test('экспорт в xlsx', () => {
+  const txs = [
+    { id: 1, user_id: 1, user_name: 'Настя', kind: 'expense', amount_minor: 120050, category: 'Продукты',
+      op_date: '2026-10-10', created_at: '2026-10-10T12:32:00Z' },
+    { id: 2, user_id: 2, user_name: 'Янка', kind: 'income', amount_minor: 8000000, category: 'Зарплата',
+      op_date: '2026-10-05', created_at: '2026-10-05T08:00:00Z' },
+  ];
+  const bytes = buildWorkbook(txs, summarize(txs), { period: '2026-10', currency: 'RSD', timeZone: 'Europe/Belgrade' });
+  const files = unzipSync(bytes);
+  for (const f of ['[Content_Types].xml', 'xl/workbook.xml', 'xl/styles.xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml']) {
+    assert.ok(files[f], f);
+  }
+  const sheet1 = strFromU8(files['xl/worksheets/sheet1.xml']);
+  assert.match(sheet1, /Янка/);
+  assert.match(sheet1, /SUM\(E2:E3\)/);
+  assert.equal(parsePeriod('', '2026-10'), '2026-10');
+  assert.equal(parsePeriod('all', '2026-10'), 'all');
+  assert.equal(parsePeriod('2026-09', '2026-10'), '2026-09');
+  assert.equal(parsePeriod('вчера', '2026-10'), null);
 });

@@ -114,3 +114,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: rgba(0,0,0,.8); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px;
   max-width: calc(100% - 32px);
 }
+
+.block .hint { color: var(--hint); font-size: 13px; margin: -6px 0 10px; }
+.export-actions { display: flex; gap: 8px; }
+.export-actions .btn { padding: 11px 8px; font-size: 14px; }

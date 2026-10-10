@@ -44,6 +44,17 @@ function dayTitle(iso) {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'short' });
 }
 
+// Когда и во сколько добавлена запись (в часовом поясе телефона).
+// Если запись внесли задним числом — показываем и дату добавления.
+function addedAt(tx) {
+  const d = new Date(tx.created_at);
+  if (Number.isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const localDay = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  if (localDay === tx.date) return time;
+  return `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} в ${time}`;
+}
+
 function haptic(type) {
   try { tg.HapticFeedback.notificationOccurred(type); } catch (_) { /* старый клиент */ }
 }
@@ -127,7 +138,7 @@ function renderList() {
   for (const [day, items] of groups) {
     html += `<div class="day"><h3>${esc(dayTitle(day))}</h3><div class="list">`;
     for (const tx of items) {
-      const sub = [tx.user_name, tx.comment].filter(Boolean).map(esc).join(' · ');
+      const sub = [tx.user_name, addedAt(tx)].filter(Boolean).map(esc).join(' · ');
       html += `
         <button class="tx" data-id="${tx.id}">
           <span class="avatar" style="background:${avatarColor(tx.user_id)}">${esc((tx.user_name || '?')[0].toUpperCase())}</span>
@@ -143,7 +154,16 @@ function renderList() {
 function renderStats() {
   const s = state.data.summary;
   const root = $('#tab-stats');
-  let html = '<div class="block"><h2>Расходы по категориям</h2>';
+  let html = `
+    <div class="block export">
+      <h2>Экспорт в Excel</h2>
+      <p class="hint">Бот пришлёт файл .xlsx в чат</p>
+      <div class="export-actions">
+        <button class="btn primary" data-export="month">📄 ${esc(MONTHS[Number(state.month.slice(5)) - 1])}</button>
+        <button class="btn secondary" data-export="all">🗂 За всё время</button>
+      </div>
+    </div>
+    <div class="block"><h2>Расходы по категориям</h2>`;
   if (!s.by_category.length) {
     html += '<div class="empty" style="padding:16px">Расходов пока нет</div>';
   } else {
@@ -224,7 +244,6 @@ async function submitForm(e) {
         kind: state.kind,
         amount,
         category: state.category,
-        comment: $('#comment').value.trim(),
         date: $('#date').value || todayISO(),
       }),
     });
@@ -244,7 +263,8 @@ async function submitForm(e) {
 async function onTxClick(id) {
   const tx = state.data.transactions.find((t) => t.id === id);
   if (!tx) return;
-  const ok = await confirmDialog(`Удалить «${tx.category}» ${signed(tx)}?`);
+  const when = addedAt(tx);
+  const ok = await confirmDialog(`Удалить «${tx.category}» ${signed(tx)}?\nДобавил(а): ${tx.user_name}${when ? ', ' + when : ''}`);
   if (!ok) return;
   try {
     await api(`/api/transactions/${id}`, { method: 'DELETE' });
@@ -252,6 +272,26 @@ async function onTxClick(id) {
     await load();
   } catch (err) {
     toast(err.message);
+  }
+}
+
+// ---------- экспорт ----------
+async function exportToBot(btn) {
+  if (btn.disabled) return;
+  const period = btn.dataset.export === 'all' ? 'all' : state.month;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Отправляю…';
+  try {
+    const r = await api('/api/export', { method: 'POST', body: JSON.stringify({ period }) });
+    haptic('success');
+    toast(r.count ? '📄 Таблица отправлена в чат с ботом' : 'Операций нет — отправил пустую таблицу');
+  } catch (err) {
+    haptic('error');
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
   }
 }
 
@@ -283,6 +323,10 @@ function bindEvents() {
   });
   $('#txForm').addEventListener('submit', submitForm);
 
+  $('#tab-stats').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-export]');
+    if (b) exportToBot(b);
+  });
   $('#tab-list').addEventListener('click', (e) => {
     const b = e.target.closest('.tx');
     if (b) onTxClick(Number(b.dataset.id));
