@@ -1,7 +1,5 @@
-.env
-data/
-__pycache__/
-*.pyc
-.pytest_cache/
-.venv/
-venv/
+node_modules/
+.wrangler/
+.dev.vars
+*.log
+.DS_Store

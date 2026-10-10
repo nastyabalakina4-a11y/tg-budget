@@ -8,6 +8,7 @@ const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', '�
   'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 const AVATAR_COLORS = ['#e17076', '#7bc862', '#65aadd', '#a695e7', '#ee7aae', '#6ec9cb', '#faa774'];
 const REFRESH_MS = 15000; // как часто подтягивать изменения партнёра
+const API_URL = ((window.APP_CONFIG && window.APP_CONFIG.apiUrl) || '').replace(/\/$/, '');
 
 const state = {
   meta: null,
@@ -62,7 +63,7 @@ function confirmDialog(text) {
 
 // ---------- API ----------
 async function api(path, options = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(API_URL + path, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -306,10 +307,14 @@ async function init() {
   }
   tg.ready();
   tg.expand();
+  if (!API_URL) {
+    showMessage('Не задан адрес API в config.js');
+    return;
+  }
   try {
     state.meta = await api('/api/meta');
   } catch (e) {
-    showMessage(esc(e.message));
+    showMessage(esc(e instanceof TypeError ? 'Нет связи с сервером. Попробуйте позже.' : e.message));
     return;
   }
   $('#app').hidden = false;

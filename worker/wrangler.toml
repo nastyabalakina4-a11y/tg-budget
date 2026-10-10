@@ -1,0 +1,23 @@
+name = "tg-budget"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+CURRENCY = "RSD"
+TIMEZONE = "Europe/Belgrade"
+# Адрес Mini App на GitHub Pages и домен, которому разрешено обращаться к API
+WEBAPP_URL = "https://nastyabalakina4-a11y.github.io/tg-budget/"
+ALLOWED_ORIGIN = "https://nastyabalakina4-a11y.github.io"
+
+# Секреты (НЕ здесь!) задаются в GitHub → Settings → Secrets и передаются при деплое:
+#   BOT_TOKEN, ALLOWED_USER_IDS
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tg-budget"
+# id подставляется автоматически в GitHub Actions; для локального запуска не нужен
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true

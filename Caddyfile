@@ -1,6 +1,0 @@
-# Caddy сам получит и будет продлевать HTTPS-сертификат Let's Encrypt.
-# Замените домен на свой поддомен, A-запись которого указывает на IP сервера.
-money.example.com {
-    encode gzip
-    reverse_proxy 127.0.0.1:8080
-}
