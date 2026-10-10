@@ -1,0 +1,15 @@
+services:
+  budget:
+    build: .
+    container_name: tg-budget
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data            # база живёт на хосте и не пропадает при пересборке
+    ports:
+      - "127.0.0.1:8080:8080"       # наружу не торчит, доступ только через Caddy (HTTPS)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 60s
+      timeout: 5s
+      retries: 3

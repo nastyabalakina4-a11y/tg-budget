@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Бюджет на двоих</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/static/style.css?v=1">
+</head>
+<body>
+  <div id="app" hidden>
+    <header class="month-bar">
+      <button id="prevMonth" class="icon-btn" aria-label="Предыдущий месяц">‹</button>
+      <h1 id="monthTitle"></h1>
+      <button id="nextMonth" class="icon-btn" aria-label="Следующий месяц">›</button>
+    </header>
+
+    <section class="cards">
+      <div class="card"><span>Доходы</span><b id="sumIncome" class="income">—</b></div>
+      <div class="card"><span>Расходы</span><b id="sumExpense" class="expense">—</b></div>
+      <div class="card wide"><span>Баланс</span><b id="sumBalance">—</b></div>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="list" role="tab">Операции</button>
+      <button class="tab" data-tab="stats" role="tab">Статистика</button>
+    </nav>
+
+    <main>
+      <section id="tab-list"></section>
+      <section id="tab-stats" hidden></section>
+    </main>
+
+    <button id="addBtn" class="fab" aria-label="Добавить операцию">+</button>
+  </div>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <form id="txForm" class="sheet-body" novalidate>
+      <div class="segmented" id="kindSwitch">
+        <button type="button" data-kind="expense" class="active">Расход</button>
+        <button type="button" data-kind="income">Доход</button>
+      </div>
+
+      <div class="field">
+        <span>Сумма</span>
+        <input id="amount" inputmode="decimal" autocomplete="off" placeholder="0">
+      </div>
+
+      <div class="field">
+        <span>Категория</span>
+        <div id="categories" class="chips"></div>
+      </div>
+
+      <div class="field">
+        <span>Комментарий</span>
+        <input id="comment" maxlength="200" autocomplete="off" placeholder="Необязательно">
+      </div>
+
+      <div class="field">
+        <span>Дата</span>
+        <input id="date" type="date">
+      </div>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn secondary" data-close>Отмена</button>
+        <button type="submit" class="btn primary" id="saveBtn">Сохранить</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="message" class="message" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/static/app.js?v=1"></script>
+</body>
+</html>
