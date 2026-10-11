@@ -1,5 +1,7 @@
 // Бот: команды, быстрый ввод сообщением и уведомления партнёру
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, MONTHS, allowedIds, todayISO } from './config.js';
+import {
+  EXPENSE_CATEGORIES, INCOME_CATEGORIES, METHOD_ICON, METHOD_LABEL, MONTHS, allowedIds, todayISO,
+} from './config.js';
 import { addTx, summary } from './db.js';
 import { fmtMoney, parseAmount } from './money.js';
 import { parsePeriod, periodTitle, sendExport } from './export.js';
@@ -17,6 +19,7 @@ const HELP = [
   '  <code>500 кафе</code> — расход',
   '  <code>350 сигареты</code> — расход',
   '  <code>+80000 зарплата</code> — доход',
+  '  <code>500 кафе нал</code> — оплачено наличными (по умолчанию — карта)',
   '  (если категория не распознана — запишется в «Другое»)',
   '• /balance — итоги текущего месяца',
   '• /export — таблица Excel за месяц, <code>/export all</code> — за всё время',
@@ -48,7 +51,9 @@ const appButton = (env) => (env.WEBAPP_URL
   : {});
 
 export function describe(tx, currency) {
-  return `${KIND_LABEL[tx.kind]} <b>${fmtMoney(tx.amount_minor, currency)}</b> — ${esc(tx.category)}`;
+  const m = tx.method === 'cash' ? 'cash' : 'card';
+  return `${KIND_LABEL[tx.kind]} <b>${fmtMoney(tx.amount_minor, currency)}</b> — ${esc(tx.category)}`
+    + ` · ${METHOD_ICON[m]} ${METHOD_LABEL[m].toLowerCase()}`;
 }
 
 async function notifyPartners(env, authorId, text) {
@@ -72,6 +77,10 @@ export function matchCategory(word, categories) {
   return categories.find((c) => c.toLowerCase() === w || (w.length >= 3 && c.toLowerCase().startsWith(w))) || null;
 }
 
+// Слова, которыми можно указать способ оплаты в любом месте сообщения
+const CASH_WORDS = new Set(['нал', 'нала', 'налом', 'наличка', 'налик', 'наличные', 'наличными', 'кэш', 'кеш', 'cash']);
+const CARD_WORDS = new Set(['карта', 'карт', 'картой', 'безнал', 'card']);
+
 /** Разбор быстрого ввода. Возвращает данные операции или null */
 export function parseQuick(text) {
   const m = QUICK_RE.exec(text);
@@ -81,8 +90,14 @@ export function parseQuick(text) {
   if (amountMinor === null) return null;
   const kind = sign === '+' ? 'income' : 'expense';
   const cats = kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-  const [first] = rest.trim().split(/\s+/);
-  return { kind, amountMinor, category: matchCategory(first, cats) || 'Другое' };
+  let method = 'card';
+  const words = [];
+  for (const w of rest.trim().toLowerCase().split(/\s+/).filter(Boolean)) {
+    if (CASH_WORDS.has(w)) method = 'cash';
+    else if (CARD_WORDS.has(w)) method = 'card';
+    else words.push(w);
+  }
+  return { kind, amountMinor, category: matchCategory(words[0], cats) || 'Другое', method };
 }
 
 async function balanceText(env) {
@@ -95,6 +110,10 @@ async function balanceText(env) {
     `💰 Доходы: ${money(s.income)}`,
     `💸 Расходы: ${money(s.expense)}`,
     `⚖️ Баланс: ${money(s.balance)}`,
+    '',
+    '<b>Карта / наличные (расход):</b>',
+    `💳 Карта: ${money(s.by_method.card.expense)}`,
+    `💵 Наличные: ${money(s.by_method.cash.expense)}`,
   ];
   if (s.by_category.length) {
     lines.push('', '<b>Топ расходов:</b>');
@@ -153,6 +172,7 @@ export async function handleUpdate(update, env) {
     kind: q.kind,
     amountMinor: q.amountMinor,
     category: q.category,
+    method: q.method,
     comment: '',
     opDate: todayISO(env),
   });

@@ -118,3 +118,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .block .hint { color: var(--hint); font-size: 13px; margin: -6px 0 10px; }
 .export-actions { display: flex; gap: 8px; }
 .export-actions .btn { padding: 11px 8px; font-size: 14px; }
+
+.method-tag { font-size: 12px; }
+.split-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg2); margin-bottom: 10px; }
+.split-bar i { display: block; height: 100%; }
+.split-bar .card { background: var(--accent); }
+.split-bar .cash { background: #f0a43a; }
+.method-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; gap: 8px; }
+.method-nums { text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
+.method-nums .pct { color: var(--hint); font-size: 12px; margin-left: 4px; }

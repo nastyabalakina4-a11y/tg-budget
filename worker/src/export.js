@@ -1,5 +1,6 @@
 // Экспорт операций в Excel и отправка файлом в чат с ботом
-import { MONTHS } from './config.js';
+import { METHOD_LABEL, MONTHS } from './config.js';
+import { methodTotals } from './db.js';
 import { listAll, listMonth, summary } from './db.js';
 import { toMajor } from './money.js';
 import { S, buildXlsx, colName, excelSerial } from './xlsx.js';
@@ -38,7 +39,7 @@ export function buildWorkbook(txs, summ, { period, currency, timeZone }) {
   const sorted = [...txs].sort((a, b) => (a.op_date === b.op_date ? a.id - b.id : a.op_date < b.op_date ? -1 : 1));
 
   // ---- Лист 1: Операции ----
-  const header = ['Дата', 'Тип', 'Категория', `Доход, ${currency}`, `Расход, ${currency}`, 'Кто добавил', 'Когда добавлено']
+  const header = ['Дата', 'Тип', 'Категория', 'Оплата', `Доход, ${currency}`, `Расход, ${currency}`, 'Кто добавил', 'Когда добавлено']
     .map((v) => ({ v, s: S.HEADER }));
   const rows = [header];
   for (const t of sorted) {
@@ -47,6 +48,7 @@ export function buildWorkbook(txs, summ, { period, currency, timeZone }) {
       { v: dateSerial(t.op_date), s: S.DATE },
       t.kind === 'income' ? 'Доход' : 'Расход',
       t.category,
+      METHOD_LABEL[t.method] || METHOD_LABEL.card,
       t.kind === 'income' ? { v: amount, s: S.MONEY } : null,
       t.kind === 'expense' ? { v: amount, s: S.MONEY } : null,
       t.user_name,
@@ -58,11 +60,11 @@ export function buildWorkbook(txs, summ, { period, currency, timeZone }) {
   const sumExpense = toMajor(summ.expense);
   rows.push([]);
   rows.push([
-    { v: 'Итого', s: S.HEADER }, { v: '', s: S.HEADER }, { v: '', s: S.HEADER },
-    { f: last > 1 ? `SUM(D2:D${last})` : '0', v: sumIncome, s: S.TOTAL },
-    { f: last > 1 ? `SUM(E2:E${last})` : '0', v: sumExpense, s: S.TOTAL },
+    { v: 'Итого', s: S.HEADER }, { v: '', s: S.HEADER }, { v: '', s: S.HEADER }, { v: '', s: S.HEADER },
+    { f: last > 1 ? `SUM(E2:E${last})` : '0', v: sumIncome, s: S.TOTAL },
+    { f: last > 1 ? `SUM(F2:F${last})` : '0', v: sumExpense, s: S.TOTAL },
     { v: 'Баланс', s: S.HEADER },
-    { f: `D${last + 2}-E${last + 2}`, v: toMajor(summ.balance), s: S.TOTAL },
+    { f: `E${last + 2}-F${last + 2}`, v: toMajor(summ.balance), s: S.TOTAL },
   ]);
 
   // ---- Лист 2: Итоги ----
@@ -73,6 +75,13 @@ export function buildWorkbook(txs, summ, { period, currency, timeZone }) {
     ['Доходы', { v: sumIncome, s: S.MONEY }],
     ['Расходы', { v: sumExpense, s: S.MONEY }],
     ['Баланс', { v: toMajor(summ.balance), s: S.MONEY }],
+    [],
+    [{ v: 'Способ оплаты', s: S.HEADER }, { v: `Доход, ${currency}`, s: S.HEADER }, { v: `Расход, ${currency}`, s: S.HEADER }],
+    ...['card', 'cash'].map((m) => [
+      METHOD_LABEL[m],
+      { v: toMajor(summ.by_method[m].income), s: S.MONEY },
+      { v: toMajor(summ.by_method[m].expense), s: S.MONEY },
+    ]),
     [],
     [{ v: 'Расходы по категориям', s: S.HEADER }, { v: `Сумма, ${currency}`, s: S.HEADER }, { v: 'Доля', s: S.HEADER }],
   ];
@@ -90,9 +99,9 @@ export function buildWorkbook(txs, summ, { period, currency, timeZone }) {
     {
       name: 'Операции',
       rows,
-      widths: [12, 9, 16, 15, 15, 16, 18],
+      widths: [12, 9, 16, 11, 15, 15, 16, 18],
       freezeHeader: true,
-      autoFilter: `A1:${colName(6)}${Math.max(last, 1)}`,
+      autoFilter: `A1:${colName(7)}${Math.max(last, 1)}`,
     },
     { name: 'Итоги', rows: sr, widths: [26, 16, 12] },
   ]);
@@ -101,7 +110,9 @@ export function buildWorkbook(txs, summ, { period, currency, timeZone }) {
 /** Собирает итоги по произвольному списку операций (для «за всё время») */
 export function summarize(txs) {
   const s = { income: 0, expense: 0, by_category: new Map(), by_user: new Map() };
+  const methodRows = [];
   for (const t of txs) {
+    methodRows.push({ method: t.method || 'card', kind: t.kind, s: t.amount_minor });
     s[t.kind] += t.amount_minor;
     if (t.kind === 'expense') s.by_category.set(t.category, (s.by_category.get(t.category) || 0) + t.amount_minor);
     if (!s.by_user.has(t.user_id)) s.by_user.set(t.user_id, { user_id: t.user_id, name: t.user_name, income: 0, expense: 0 });
@@ -114,6 +125,7 @@ export function summarize(txs) {
     by_category: [...s.by_category].map(([category, amount_minor]) => ({ category, amount_minor }))
       .sort((a, b) => b.amount_minor - a.amount_minor),
     by_user: [...s.by_user.values()],
+    by_method: methodTotals(methodRows),
   };
 }
 

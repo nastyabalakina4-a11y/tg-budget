@@ -5,6 +5,11 @@ export const EXPENSE_CATEGORIES = [
 ];
 export const INCOME_CATEGORIES = ['Зарплата', 'Подработка', 'Подарок', 'Возврат', 'Другое'];
 
+// Способы оплаты
+export const METHODS = ['card', 'cash'];
+export const METHOD_LABEL = { card: 'Карта', cash: 'Наличные' };
+export const METHOD_ICON = { card: '💳', cash: '💵' };
+
 export const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль',
   'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 

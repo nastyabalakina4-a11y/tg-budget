@@ -1,7 +1,7 @@
 // Cloudflare Worker: API для Mini App + webhook бота.
 // Интерфейс лежит на GitHub Pages и обращается сюда с другого домена (CORS).
 import { validateInitData, webhookSecret } from './auth.js';
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, allowedIds, todayISO } from './config.js';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, METHODS, allowedIds, todayISO } from './config.js';
 import { addTx, deleteTx, getTx, listMonth, summary } from './db.js';
 import { handleUpdate, notifyAdded, notifyDeleted, setupBot } from './bot.js';
 import { parseAmount, toMajor } from './money.js';
@@ -29,7 +29,7 @@ const userName = (u) => String(u.first_name || u.username || u.id).slice(0, 64);
 
 const txOut = (t) => ({
   id: t.id, user_id: t.user_id, user_name: t.user_name, kind: t.kind,
-  amount: toMajor(t.amount_minor), category: t.category,
+  amount: toMajor(t.amount_minor), category: t.category, method: t.method || 'card',
   date: t.op_date, created_at: t.created_at,
 });
 
@@ -62,6 +62,9 @@ async function api(request, env, ctx, url) {
         expense: toMajor(s.expense),
         balance: toMajor(s.balance),
         by_category: s.by_category.map((c) => ({ category: c.category, amount: toMajor(c.amount_minor) })),
+        by_method: Object.fromEntries(Object.entries(s.by_method).map(([m, v]) => [m, {
+          income: toMajor(v.income), expense: toMajor(v.expense),
+        }])),
         by_user: s.by_user.map((u) => ({
           user_id: u.user_id, name: u.name, income: toMajor(u.income), expense: toMajor(u.expense),
         })),
@@ -80,6 +83,8 @@ async function api(request, env, ctx, url) {
     const allowed = kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
     const category = String(body.category || '').trim();
     if (!allowed.includes(category)) return error(400, 'Неизвестная категория', env);
+    const method = body.method === undefined ? 'card' : body.method;
+    if (!METHODS.includes(method)) return error(400, 'method должен быть card или cash', env);
     const opDate = String(body.date || todayISO(env));
     if (!DATE_RE.test(opDate) || Number.isNaN(Date.parse(opDate))) {
       return error(400, 'Дата должна быть в формате ГГГГ-ММ-ДД', env);
@@ -87,7 +92,7 @@ async function api(request, env, ctx, url) {
 
     const tx = await addTx(env.DB, {
       userId: user.id, userName: userName(user), kind, amountMinor, category,
-      comment: '', opDate,
+      comment: '', method, opDate,
     });
     ctx.waitUntil(notifyAdded(env, tx)); // уведомление уходит в фоне, ответ не ждёт
     return json(txOut(tx), 201, env);

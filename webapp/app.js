@@ -17,10 +17,21 @@ const state = {
   tab: 'list',
   kind: 'expense',
   category: null,
+  method: loadPref('method', 'card'), // последний выбранный способ оплаты запоминается
   saving: false,
 };
 
 // ---------- утилиты ----------
+// Мелкие настройки на этом устройстве (если хранилище недоступно — просто не запоминаем)
+function loadPref(key, fallback) {
+  try { return localStorage.getItem(`budget.${key}`) || fallback; } catch (_) { return fallback; }
+}
+function savePref(key, value) {
+  try { localStorage.setItem(`budget.${key}`, value); } catch (_) { /* приватный режим и т.п. */ }
+}
+const METHOD = { card: { icon: '💳', label: 'Карта' }, cash: { icon: '💵', label: 'Наличные' } };
+const methodOf = (tx) => METHOD[tx.method] || METHOD.card;
+
 function pad(n) { return String(n).padStart(2, '0'); }
 function monthKey(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
@@ -138,7 +149,9 @@ function renderList() {
   for (const [day, items] of groups) {
     html += `<div class="day"><h3>${esc(dayTitle(day))}</h3><div class="list">`;
     for (const tx of items) {
-      const sub = [tx.user_name, addedAt(tx)].filter(Boolean).map(esc).join(' · ');
+      const m = methodOf(tx);
+      const sub = `<span class="method-tag" title="${m.label}">${m.icon}</span> `
+        + [tx.user_name, addedAt(tx)].filter(Boolean).map(esc).join(' · ');
       html += `
         <button class="tx" data-id="${tx.id}">
           <span class="avatar" style="background:${avatarColor(tx.user_id)}">${esc((tx.user_name || '?')[0].toUpperCase())}</span>
@@ -163,6 +176,7 @@ function renderStats() {
         <button class="btn secondary" data-export="all">🗂 За всё время</button>
       </div>
     </div>
+    ${methodBlock(s)}
     <div class="block"><h2>Расходы по категориям</h2>`;
   if (!s.by_category.length) {
     html += '<div class="empty" style="padding:16px">Расходов пока нет</div>';
@@ -196,6 +210,33 @@ function renderStats() {
   root.innerHTML = html;
 }
 
+// Блок «Карта / наличные»: сколько потрачено и получено каждым способом
+function methodBlock(s) {
+  const bm = s.by_method || { card: { income: 0, expense: 0 }, cash: { income: 0, expense: 0 } };
+  const total = bm.card.expense + bm.cash.expense;
+  const pct = (v) => (total ? Math.round((v / total) * 100) : 0);
+  const row = (key) => `
+    <div class="method-row">
+      <div class="method-name">${METHOD[key].icon} ${METHOD[key].label}</div>
+      <div class="method-nums">
+        <div class="expense">−${esc(money(bm[key].expense))} <span class="pct">${pct(bm[key].expense)}%</span></div>
+        ${bm[key].income ? `<div class="income">+${esc(money(bm[key].income))}</div>` : ''}
+      </div>
+    </div>`;
+  return `
+    <div class="block">
+      <h2>Карта / наличные</h2>
+      ${total ? `<div class="split-bar"><i class="card" style="width:${pct(bm.card.expense)}%"></i><i class="cash" style="width:${100 - pct(bm.card.expense)}%"></i></div>` : ''}
+      ${row('card')}${row('cash')}
+    </div>`;
+}
+
+function setMethod(method) {
+  state.method = METHOD[method] ? method : 'card';
+  document.querySelectorAll('#methodSwitch button')
+    .forEach((b) => b.classList.toggle('active', b.dataset.method === state.method));
+}
+
 // ---------- форма добавления ----------
 function renderCategories() {
   const cats = state.meta.categories[state.kind];
@@ -214,6 +255,7 @@ function setKind(kind) {
 function openSheet() {
   $('#txForm').reset();
   setKind('expense');
+  setMethod(state.method);
   $('#date').value = todayISO();
   $('#sheet').hidden = false;
   if (tg.BackButton) tg.BackButton.show();
@@ -244,6 +286,7 @@ async function submitForm(e) {
         kind: state.kind,
         amount,
         category: state.category,
+        method: state.method,
         date: $('#date').value || todayISO(),
       }),
     });
@@ -264,7 +307,8 @@ async function onTxClick(id) {
   const tx = state.data.transactions.find((t) => t.id === id);
   if (!tx) return;
   const when = addedAt(tx);
-  const ok = await confirmDialog(`Удалить «${tx.category}» ${signed(tx)}?\nДобавил(а): ${tx.user_name}${when ? ', ' + when : ''}`);
+  const ok = await confirmDialog(`Удалить «${tx.category}» ${signed(tx)} (${methodOf(tx).label.toLowerCase()})?`
+    + `\nДобавил(а): ${tx.user_name}${when ? ', ' + when : ''}`);
   if (!ok) return;
   try {
     await api(`/api/transactions/${id}`, { method: 'DELETE' });
@@ -314,6 +358,12 @@ function bindEvents() {
   $('#kindSwitch').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-kind]');
     if (b) setKind(b.dataset.kind);
+  });
+  $('#methodSwitch').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-method]');
+    if (!b) return;
+    setMethod(b.dataset.method);
+    savePref('method', state.method);
   });
   $('#categories').addEventListener('click', (e) => {
     const b = e.target.closest('.chip');

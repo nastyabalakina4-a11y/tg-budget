@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Бюджет на двоих</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <div id="app" hidden>
@@ -48,6 +48,14 @@
       </div>
 
       <div class="field">
+        <span>Оплата</span>
+        <div class="segmented method" id="methodSwitch">
+          <button type="button" data-method="card" class="active">💳 Карта</button>
+          <button type="button" data-method="cash">💵 Наличные</button>
+        </div>
+      </div>
+
+      <div class="field">
         <span>Категория</span>
         <div id="categories" class="chips"></div>
       </div>
@@ -67,7 +75,7 @@
   <div id="message" class="message" hidden></div>
   <div id="toast" class="toast" hidden></div>
 
-  <script src="config.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="config.js?v=4"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

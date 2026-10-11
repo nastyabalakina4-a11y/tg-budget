@@ -33,18 +33,25 @@ test('суммы', () => {
 });
 
 test('быстрый ввод', () => {
-  assert.deepEqual(parseQuick('500 кафе'), { kind: 'expense', amountMinor: 50000, category: 'Кафе' });
-  assert.deepEqual(parseQuick('-350 сигареты'), { kind: 'expense', amountMinor: 35000, category: 'Сигареты' });
-  assert.deepEqual(parseQuick('350 сиги'), { kind: 'expense', amountMinor: 35000, category: 'Сигареты' });
-  assert.deepEqual(parseQuick('+80000 зарплата'), { kind: 'income', amountMinor: 8000000, category: 'Зарплата' });
-  assert.deepEqual(parseQuick('300 такси до центра'), { kind: 'expense', amountMinor: 30000, category: 'Другое' });
+  const q = (kind, amountMinor, category, method = 'card') => ({ kind, amountMinor, category, method });
+  assert.deepEqual(parseQuick('500 кафе'), q('expense', 50000, 'Кафе'));
+  assert.deepEqual(parseQuick('-350 сигареты'), q('expense', 35000, 'Сигареты'));
+  assert.deepEqual(parseQuick('350 сиги'), q('expense', 35000, 'Сигареты'));
+  assert.deepEqual(parseQuick('+80000 зарплата'), q('income', 8000000, 'Зарплата'));
+  assert.deepEqual(parseQuick('300 такси до центра'), q('expense', 30000, 'Другое'));
+  assert.deepEqual(parseQuick('500 кафе нал'), q('expense', 50000, 'Кафе', 'cash'));
+  assert.deepEqual(parseQuick('500 нал кафе'), q('expense', 50000, 'Кафе', 'cash'));
+  assert.deepEqual(parseQuick('350 Сиги Наличными'), q('expense', 35000, 'Сигареты', 'cash'));
+  assert.deepEqual(parseQuick('+20000 подработка кэш'), q('income', 2000000, 'Подработка', 'cash'));
+  assert.deepEqual(parseQuick('500 кафе картой'), q('expense', 50000, 'Кафе'));
+  assert.deepEqual(parseQuick('200 нал'), q('expense', 20000, 'Другое', 'cash'));
   assert.equal(parseQuick('привет'), null);
 });
 
 test('экспорт в xlsx', () => {
   const txs = [
     { id: 1, user_id: 1, user_name: 'Настя', kind: 'expense', amount_minor: 120050, category: 'Продукты',
-      op_date: '2026-10-10', created_at: '2026-10-10T12:32:00Z' },
+      method: 'cash', op_date: '2026-10-10', created_at: '2026-10-10T12:32:00Z' },
     { id: 2, user_id: 2, user_name: 'Янка', kind: 'income', amount_minor: 8000000, category: 'Зарплата',
       op_date: '2026-10-05', created_at: '2026-10-05T08:00:00Z' },
   ];
@@ -55,7 +62,10 @@ test('экспорт в xlsx', () => {
   }
   const sheet1 = strFromU8(files['xl/worksheets/sheet1.xml']);
   assert.match(sheet1, /Янка/);
-  assert.match(sheet1, /SUM\(E2:E3\)/);
+  assert.match(sheet1, /Наличные/);
+  const summ = summarize(txs);
+  assert.deepEqual(summ.by_method, { card: { income: 8000000, expense: 0 }, cash: { income: 0, expense: 120050 } });
+  assert.match(sheet1, /SUM\(F2:F3\)/);
   assert.equal(parsePeriod('', '2026-10'), '2026-10');
   assert.equal(parsePeriod('all', '2026-10'), 'all');
   assert.equal(parsePeriod('2026-09', '2026-10'), '2026-09');
