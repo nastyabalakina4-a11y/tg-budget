@@ -71,3 +71,12 @@ test('экспорт в xlsx', () => {
   assert.equal(parsePeriod('2026-09', '2026-10'), '2026-09');
   assert.equal(parsePeriod('вчера', '2026-10'), null);
 });
+
+test('что изменилось при редактировании', async () => {
+  const { diffTx } = await import('../src/bot.js');
+  const before = { kind: 'expense', amount_minor: 35000, category: 'Сигареты', method: 'card', op_date: '2026-10-10' };
+  assert.deepEqual(diffTx(before, { ...before, method: 'cash' }, 'RSD'), ['Оплата: Карта → <b>Наличные</b>']);
+  assert.deepEqual(diffTx(before, { ...before, amount_minor: 40000, op_date: '2026-10-09' }, 'RSD'),
+    ['Сумма: 350 RSD → <b>400 RSD</b>', 'Дата: 10.10 → <b>09.10</b>']);
+  assert.deepEqual(diffTx(before, { ...before }, 'RSD'), []);
+});

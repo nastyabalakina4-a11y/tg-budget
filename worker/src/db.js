@@ -8,6 +8,17 @@ export async function addTx(db, t) {
     new Date().toISOString().slice(0, 19) + 'Z').first();
 }
 
+/** Изменить запись. Автор (user_id/user_name) и время создания сохраняются */
+export async function updateTx(db, id, t) {
+  return db.prepare(
+    `UPDATE transactions
+        SET kind = ?, amount_minor = ?, category = ?, method = ?, op_date = ?,
+            updated_at = ?, updated_by_name = ?
+      WHERE id = ? RETURNING *`,
+  ).bind(t.kind, t.amountMinor, t.category, t.method, t.opDate,
+    new Date().toISOString().slice(0, 19) + 'Z', t.editorName, id).first();
+}
+
 export const getTx = (db, id) => db.prepare('SELECT * FROM transactions WHERE id = ?').bind(id).first();
 
 export async function deleteTx(db, id) {

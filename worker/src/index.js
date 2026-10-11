@@ -2,8 +2,8 @@
 // Интерфейс лежит на GitHub Pages и обращается сюда с другого домена (CORS).
 import { validateInitData, webhookSecret } from './auth.js';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, METHODS, allowedIds, todayISO } from './config.js';
-import { addTx, deleteTx, getTx, listMonth, summary } from './db.js';
-import { handleUpdate, notifyAdded, notifyDeleted, setupBot } from './bot.js';
+import { addTx, deleteTx, getTx, listMonth, summary, updateTx } from './db.js';
+import { handleUpdate, notifyAdded, notifyDeleted, notifyEdited, setupBot } from './bot.js';
 import { parseAmount, toMajor } from './money.js';
 import { MONTH_RE, sendExport } from './export.js';
 
@@ -12,7 +12,7 @@ const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 function corsHeaders(env) {
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Telegram-Init-Data',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -31,7 +31,26 @@ const txOut = (t) => ({
   id: t.id, user_id: t.user_id, user_name: t.user_name, kind: t.kind,
   amount: toMajor(t.amount_minor), category: t.category, method: t.method || 'card',
   date: t.op_date, created_at: t.created_at,
+  updated_at: t.updated_at || null, updated_by_name: t.updated_by_name || null,
 });
+
+/** Проверка полей операции (для добавления и редактирования). Возвращает { error } или поля */
+function parseTxBody(body, env) {
+  const { kind } = body;
+  if (kind !== 'income' && kind !== 'expense') return { error: 'kind должен быть income или expense' };
+  const amountMinor = parseAmount(body.amount);
+  if (amountMinor === null) return { error: 'Некорректная сумма' };
+  const allowed = kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const category = String(body.category || '').trim();
+  if (!allowed.includes(category)) return { error: 'Неизвестная категория' };
+  const method = body.method === undefined ? 'card' : body.method;
+  if (!METHODS.includes(method)) return { error: 'method должен быть card или cash' };
+  const opDate = String(body.date || todayISO(env));
+  if (!DATE_RE.test(opDate) || Number.isNaN(Date.parse(opDate))) {
+    return { error: 'Дата должна быть в формате ГГГГ-ММ-ДД' };
+  }
+  return { kind, amountMinor, category, method, opDate };
+}
 
 async function api(request, env, ctx, url) {
   // 1. Проверяем, что запрос из Telegram и от одного из двух участников
@@ -76,24 +95,10 @@ async function api(request, env, ctx, url) {
     let body;
     try { body = await request.json(); } catch { return error(400, 'Ожидался JSON', env); }
 
-    const { kind } = body;
-    if (kind !== 'income' && kind !== 'expense') return error(400, 'kind должен быть income или expense', env);
-    const amountMinor = parseAmount(body.amount);
-    if (amountMinor === null) return error(400, 'Некорректная сумма', env);
-    const allowed = kind === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-    const category = String(body.category || '').trim();
-    if (!allowed.includes(category)) return error(400, 'Неизвестная категория', env);
-    const method = body.method === undefined ? 'card' : body.method;
-    if (!METHODS.includes(method)) return error(400, 'method должен быть card или cash', env);
-    const opDate = String(body.date || todayISO(env));
-    if (!DATE_RE.test(opDate) || Number.isNaN(Date.parse(opDate))) {
-      return error(400, 'Дата должна быть в формате ГГГГ-ММ-ДД', env);
-    }
+    const f = parseTxBody(body, env);
+    if (f.error) return error(400, f.error, env);
 
-    const tx = await addTx(env.DB, {
-      userId: user.id, userName: userName(user), kind, amountMinor, category,
-      comment: '', method, opDate,
-    });
+    const tx = await addTx(env.DB, { userId: user.id, userName: userName(user), comment: '', ...f });
     ctx.waitUntil(notifyAdded(env, tx)); // уведомление уходит в фоне, ответ не ждёт
     return json(txOut(tx), 201, env);
   }
@@ -110,6 +115,20 @@ async function api(request, env, ctx, url) {
   }
 
   const del = /^\/api\/transactions\/(\d+)$/.exec(path);
+
+  // Редактирование: может править любой из двоих, автор записи сохраняется
+  if (method === 'PUT' && del) {
+    const old = await getTx(env.DB, Number(del[1]));
+    if (!old) return error(404, 'Запись не найдена — возможно, её уже удалили', env);
+    let body;
+    try { body = await request.json(); } catch { return error(400, 'Ожидался JSON', env); }
+    const f = parseTxBody(body, env);
+    if (f.error) return error(400, f.error, env);
+    const tx = await updateTx(env.DB, old.id, { ...f, editorName: userName(user) });
+    ctx.waitUntil(notifyEdited(env, old, tx, user.id, userName(user)));
+    return json(txOut(tx), 200, env);
+  }
+
   if (method === 'DELETE' && del) {
     const tx = await getTx(env.DB, Number(del[1]));
     if (!tx) return error(404, 'Запись не найдена', env);

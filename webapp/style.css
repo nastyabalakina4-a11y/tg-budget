@@ -127,3 +127,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .method-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; gap: 8px; }
 .method-nums { text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
 .method-nums .pct { color: var(--hint); font-size: 12px; margin-left: 4px; }
+
+.sheet-head { margin-bottom: 12px; }
+.sheet-head h2 { font-size: 17px; margin: 0 0 2px; }
+.sheet-meta { color: var(--hint); font-size: 13px; }
+.btn.danger { display: block; width: 100%; margin-top: 10px; background: none; color: var(--danger); font-weight: 500; }
+.tx .edited { font-style: italic; }

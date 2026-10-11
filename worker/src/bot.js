@@ -67,6 +67,30 @@ export const notifyAdded = (env, tx) =>
 export const notifyDeleted = (env, tx, byId, byName) =>
   notifyPartners(env, byId, `🗑 ${esc(byName)} удалил(а) запись: ${describe(tx, env.CURRENCY)}`);
 
+/** Что поменялось в записи — список строк «поле: было → стало» */
+export function diffTx(a, b, currency) {
+  const m = (t) => METHOD_LABEL[t.method === 'cash' ? 'cash' : 'card'];
+  const d = (s) => `${s.slice(8, 10)}.${s.slice(5, 7)}`;
+  const fields = [
+    ['Тип', (t) => (t.kind === 'income' ? 'доход' : 'расход')],
+    ['Сумма', (t) => fmtMoney(t.amount_minor, currency)],
+    ['Категория', (t) => t.category],
+    ['Оплата', m],
+    ['Дата', (t) => d(t.op_date)],
+  ];
+  return fields
+    .filter(([, get]) => get(a) !== get(b))
+    .map(([name, get]) => `${name}: ${esc(get(a))} → <b>${esc(get(b))}</b>`);
+}
+
+export function notifyEdited(env, before, after, byId, byName) {
+  const changes = diffTx(before, after, env.CURRENCY);
+  if (!changes.length) return Promise.resolve();
+  return notifyPartners(env, byId, `✏️ ${esc(byName)} изменил(а) запись `
+    + `«${esc(before.category)}» от ${before.op_date.slice(8, 10)}.${before.op_date.slice(5, 7)}:\n`
+    + changes.map((c) => `• ${c}`).join('\n'));
+}
+
 // Разговорные синонимы категорий для быстрого ввода
 const ALIASES = { 'сиги': 'Сигареты', 'сижки': 'Сигареты', 'курево': 'Сигареты', 'табак': 'Сигареты' };
 

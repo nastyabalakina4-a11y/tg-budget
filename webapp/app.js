@@ -19,6 +19,7 @@ const state = {
   category: null,
   method: loadPref('method', 'card'), // последний выбранный способ оплаты запоминается
   saving: false,
+  editing: null, // запись, которую сейчас редактируем (null — добавляем новую)
 };
 
 // ---------- утилиты ----------
@@ -64,6 +65,13 @@ function addedAt(tx) {
   const localDay = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   if (localDay === tx.date) return time;
   return `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} в ${time}`;
+}
+
+function editedAt(tx) {
+  const d = new Date(tx.updated_at);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} в `
+    + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
 function haptic(type) {
@@ -151,7 +159,8 @@ function renderList() {
     for (const tx of items) {
       const m = methodOf(tx);
       const sub = `<span class="method-tag" title="${m.label}">${m.icon}</span> `
-        + [tx.user_name, addedAt(tx)].filter(Boolean).map(esc).join(' · ');
+        + [tx.user_name, addedAt(tx)].filter(Boolean).map(esc).join(' · ')
+        + (tx.updated_at ? ' · <span class="edited">изменено</span>' : '');
       html += `
         <button class="tx" data-id="${tx.id}">
           <span class="avatar" style="background:${avatarColor(tx.user_id)}">${esc((tx.user_name || '?')[0].toUpperCase())}</span>
@@ -252,14 +261,41 @@ function setKind(kind) {
   renderCategories();
 }
 
-function openSheet() {
-  $('#txForm').reset();
-  setKind('expense');
-  setMethod(state.method);
-  $('#date').value = todayISO();
+function showSheet() {
   $('#sheet').hidden = false;
   if (tg.BackButton) tg.BackButton.show();
+}
+
+// Новая запись
+function openSheet() {
+  state.editing = null;
+  $('#txForm').reset();
+  $('#sheetHead').hidden = true;
+  $('#deleteBtn').hidden = true;
+  $('#saveBtn').textContent = 'Сохранить';
+  setKind('expense');
+  setMethod(loadPref('method', 'card'));
+  $('#date').value = todayISO();
+  showSheet();
   setTimeout(() => $('#amount').focus(), 50);
+}
+
+// Редактирование существующей записи: форма заполняется её данными
+function openEditSheet(tx) {
+  state.editing = tx;
+  $('#txForm').reset();
+  $('#amount').value = String(tx.amount).replace('.', ',');
+  state.category = tx.category;
+  setKind(tx.kind);
+  setMethod(tx.method);
+  $('#date').value = tx.date;
+  const added = `Добавил(а) ${tx.user_name}${addedAt(tx) ? ', ' + addedAt(tx) : ''}`;
+  const edited = tx.updated_at ? ` · изменил(а) ${tx.updated_by_name || '—'}, ${editedAt(tx)}` : '';
+  $('#sheetMeta').textContent = added + edited;
+  $('#sheetHead').hidden = false;
+  $('#deleteBtn').hidden = false;
+  $('#saveBtn').textContent = 'Сохранить изменения';
+  showSheet();
 }
 
 function closeSheet() {
@@ -279,9 +315,10 @@ async function submitForm(e) {
   }
   state.saving = true;
   $('#saveBtn').disabled = true;
+  const editing = state.editing;
   try {
-    const tx = await api('/api/transactions', {
-      method: 'POST',
+    const tx = await api(editing ? `/api/transactions/${editing.id}` : '/api/transactions', {
+      method: editing ? 'PUT' : 'POST',
       body: JSON.stringify({
         kind: state.kind,
         amount,
@@ -292,6 +329,7 @@ async function submitForm(e) {
     });
     haptic('success');
     closeSheet();
+    if (editing) toast('✏️ Изменения сохранены');
     state.month = tx.date.slice(0, 7); // показываем месяц, куда попала запись
     await load();
   } catch (err) {
@@ -303,16 +341,21 @@ async function submitForm(e) {
   }
 }
 
-async function onTxClick(id) {
+function onTxClick(id) {
   const tx = state.data.transactions.find((t) => t.id === id);
+  if (tx) openEditSheet(tx);
+}
+
+async function deleteEditing() {
+  const tx = state.editing;
   if (!tx) return;
-  const when = addedAt(tx);
-  const ok = await confirmDialog(`Удалить «${tx.category}» ${signed(tx)} (${methodOf(tx).label.toLowerCase()})?`
-    + `\nДобавил(а): ${tx.user_name}${when ? ', ' + when : ''}`);
+  const ok = await confirmDialog(`Удалить «${tx.category}» ${signed(tx)} (${methodOf(tx).label.toLowerCase()})?`);
   if (!ok) return;
   try {
-    await api(`/api/transactions/${id}`, { method: 'DELETE' });
+    await api(`/api/transactions/${tx.id}`, { method: 'DELETE' });
     haptic('success');
+    closeSheet();
+    toast('🗑 Запись удалена');
     await load();
   } catch (err) {
     toast(err.message);
@@ -363,7 +406,7 @@ function bindEvents() {
     const b = e.target.closest('button[data-method]');
     if (!b) return;
     setMethod(b.dataset.method);
-    savePref('method', state.method);
+    if (!state.editing) savePref('method', state.method); // при правке старой записи выбор не запоминаем
   });
   $('#categories').addEventListener('click', (e) => {
     const b = e.target.closest('.chip');
@@ -372,6 +415,7 @@ function bindEvents() {
     renderCategories();
   });
   $('#txForm').addEventListener('submit', submitForm);
+  $('#deleteBtn').addEventListener('click', deleteEditing);
 
   $('#tab-stats').addEventListener('click', (e) => {
     const b = e.target.closest('[data-export]');
